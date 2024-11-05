@@ -581,8 +581,8 @@ namespace rgb_matrix
       result->push_back(new P10Outdoor32x16QuarterScanMapper());
       result->push_back(new P3Outdoor64x64MultiplexMapper());
       // ******************* for 1/5 scan led panels ******************* //
-      result->push_back(new ZStripeMultiplexMapper("ZStripe", 0, 8, 8, 5));
-      result->push_back(new ZStripeMultiplexMapper("ZnMirrorZStripe", 4, 4, 8, 5));
+      result->push_back(new ZStripeMultiplexMapper("ZStripe_1_5", 0, 8, 8, 5));
+      result->push_back(new ZStripeMultiplexMapper("ZnMirrorZStripe_1_5", 4, 4, 8, 5));
       // *************************************************************** //
       return result;
     }
