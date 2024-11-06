@@ -203,12 +203,14 @@ public:
         if (allow_busy_waiting_) {
           const uint32_t elapsed_us = GetMicrosecondCounter() - start_time_us;
 
-          // 5 usec for tuning
-          const uint32_t to_sleep_us = (target_frame_usec_ - elapsed_us) - JitterAllowanceMicroseconds() - 5;
+          // 3 usec for tuning
+          const uint32_t to_sleep_us = (target_frame_usec_ - elapsed_us) - JitterAllowanceMicroseconds() - 3;
 
-          if(to_sleep_us) {
+          if(to_sleep_us > 5) {
             // Use to_sleep_us to avoid unnecessary CPU cycles during long wait durations
-            SleepMicroseconds(to_sleep_us);
+            // skip sleeping for small than 5 usc
+            struct timespec sleep_time = { 0, (long)to_sleep_us * 1000 };
+            nanosleep(&sleep_time, NULL);
           }
 
           while ((GetMicrosecondCounter() - start_time_us) < target_frame_usec_) {
