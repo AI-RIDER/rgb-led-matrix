@@ -201,8 +201,18 @@ public:
 
       if (target_frame_usec_) {
         if (allow_busy_waiting_) {
+          const uint32_t elapsed_us = GetMicrosecondCounter() - start_time_us;
+
+          // 5 usec for tuning
+          const uint32_t to_sleep_us = (target_frame_usec_ - elapsed_us) - JitterAllowanceMicroseconds() - 5;
+
+          if(to_sleep_us) {
+            // Use to_sleep_us to avoid unnecessary CPU cycles during long wait durations
+            SleepMicroseconds(to_sleep_us);
+          }
+
           while ((GetMicrosecondCounter() - start_time_us) < target_frame_usec_) {
-            // busy wait. We have our dedicated core, so ok to burn cycles.
+            // busy wait.
           }
         } else {
           long spent_us = GetMicrosecondCounter() - start_time_us;

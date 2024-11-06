@@ -161,6 +161,8 @@ uint32_t GetMicrosecondCounter();
 
 void SleepMicroseconds(long);
 
+uint32_t JitterAllowanceMicroseconds();
+
 }  // end namespace rgb_matrix
 
 #endif  // RPI_GPIO_INGERNALH

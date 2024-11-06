@@ -429,6 +429,22 @@ bool GPIO::IsPi4() {
   return GetPiModel() == PI_MODEL_4;
 }
 
+uint32_t JitterAllowanceMicroseconds() {
+  // If this is a Raspberry Pi with more than one core, we add a bit of
+  // additional overhead measured up to the 99.999%-ile: we can allow to burn
+  // a bit more busy-wait CPU cycles to get the timing accurate as we have
+  // more CPU to spare.
+  switch (GetPiModel()) {
+  case PI_MODEL_1:
+    return EMPIRICAL_NANOSLEEP_OVERHEAD_US;  // 99.9%-ile
+  case PI_MODEL_2: case PI_MODEL_3:
+    return EMPIRICAL_NANOSLEEP_OVERHEAD_US + 35;  // 99.999%-ile
+  case PI_MODEL_4:
+    return EMPIRICAL_NANOSLEEP_OVERHEAD_US + 10;  // this one is fast.
+  }
+  return EMPIRICAL_NANOSLEEP_OVERHEAD_US;
+}
+
 /*
  * We support also other pinouts that don't have the OE- on the hardware
  * PWM output pin, so we need to provide (impefect) 'manual' timing as well.
@@ -526,22 +542,6 @@ bool Timers::Init() {
             "at the end of /boot/cmdline.txt and reboot (see README.md)\n");
   }
   return true;
-}
-
-static uint32_t JitterAllowanceMicroseconds() {
-  // If this is a Raspberry Pi with more than one core, we add a bit of
-  // additional overhead measured up to the 99.999%-ile: we can allow to burn
-  // a bit more busy-wait CPU cycles to get the timing accurate as we have
-  // more CPU to spare.
-  switch (GetPiModel()) {
-  case PI_MODEL_1:
-    return EMPIRICAL_NANOSLEEP_OVERHEAD_US;  // 99.9%-ile
-  case PI_MODEL_2: case PI_MODEL_3:
-    return EMPIRICAL_NANOSLEEP_OVERHEAD_US + 35;  // 99.999%-ile
-  case PI_MODEL_4:
-    return EMPIRICAL_NANOSLEEP_OVERHEAD_US + 10;  // this one is fast.
-  }
-  return EMPIRICAL_NANOSLEEP_OVERHEAD_US;
 }
 
 void Timers::sleep_nanos(long nanos) {
