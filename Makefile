@@ -9,6 +9,14 @@ RGB_LIBRARY=$(RGB_LIBDIR)/lib$(RGB_LIBRARY_NAME).a
 PYTHON_LIB_DIR=bindings/python
 CSHARP_LIB_DIR=bindings/c\#
 
+BOARD_TYPE ?= raspberry_pi
+
+ifeq ($(BOARD_TYPE), raspberry_pi)
+    CFLAGS += -DRASP_PI
+else ifeq ($(BOARD_TYPE), remi_pi)
+    CFLAGS += -DREMI_PI
+endif
+
 all : $(RGB_LIBRARY)
 
 $(RGB_LIBRARY): FORCE

@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://gnu.org/licenses/gpl-2.0.txt>
 
+#ifdef REMI_PI
+
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 
@@ -59,14 +61,11 @@
  * (The full histogram will be shifted by the EMPIRICAL_NANOSLEEP_OVERHEAD_US
  *  value above. To get a full histogram of OS overhead, set it to 0 first).
  */
-#define DEBUG_SLEEP_JITTER 0
 
-// Raspberry 1 and 2 have different base addresses for the periphery
-#define BCM2708_PERI_BASE        0x20000000
-#define BCM2709_PERI_BASE        0x3F000000
-#define BCM2711_PERI_BASE        0xFE000000
+// TODO: read from doc
+#define PERI_BASE 0x00000
 
-#define GPIO_REGISTER_OFFSET         0x200000
+#define GPIO_REGISTER_OFFSET         0x11030000
 #define COUNTER_1Mhz_REGISTER_OFFSET   0x3000
 
 #define GPIO_PWM_BASE_OFFSET	(GPIO_REGISTER_OFFSET + 0xC000)
@@ -145,9 +144,6 @@ static bool LinuxHasModuleLoaded(const char *name) {
 
 GPIO::GPIO() : output_bits_(0), input_bits_(0), reserved_bits_(0),
                slowdown_(1)
-#ifdef ENABLE_WIDE_GPIO_COMPUTE_MODULE
-             , uses_64_bit_(false)
-#endif
 {
 }
 
@@ -168,12 +164,7 @@ gpio_bits_t GPIO::InitOutputs(gpio_bits_t outputs,
   // can switch between the two modes "adafruit-hat" and "adafruit-hat-pwm"
   // without trouble.
   if (adafruit_pwm_transition_hack_needed) {
-    INP_GPIO(4);
-    INP_GPIO(18);
-    // Even with PWM enabled, GPIO4 still can not be used, because it is
-    // now connected to the GPIO18 and thus must stay an input.
-    // So reserve this bit if it is not set in outputs.
-    reserved_bits_ = GPIO_BIT(4) & ~outputs;
+    // TODO: rm adafruit hat in future
   }
 
   outputs &= ~(output_bits_ | input_bits_ | reserved_bits_);
@@ -182,24 +173,23 @@ gpio_bits_t GPIO::InitOutputs(gpio_bits_t outputs,
   // easily do that ?), so let's complain only about the default GPIO.
   if ((outputs & GPIO_BIT(4))
       && LinuxHasModuleLoaded("w1_gpio")) {
+    // TODO: need more survey for this
     fprintf(stderr, "This Raspberry Pi has the one-wire protocol enabled.\n"
             "This will mess with the display if GPIO pins overlap.\n"
             "Disable 1-wire in raspi-config (Interface Options).\n\n");
   }
 
-#ifdef ENABLE_WIDE_GPIO_COMPUTE_MODULE
-  const int kMaxAvailableBit = 45;
-  uses_64_bit_ |= (outputs >> 32) != 0;
-#else
   const int kMaxAvailableBit = 31;
-#endif
+
   for (int b = 0; b <= kMaxAvailableBit; ++b) {
     if (outputs & GPIO_BIT(b)) {
       INP_GPIO(b);   // for writing, we first need to set as input.
       OUT_GPIO(b);
     }
   }
+
   output_bits_ |= outputs;
+
   return outputs;
 }
 
@@ -210,29 +200,20 @@ gpio_bits_t GPIO::RequestInputs(gpio_bits_t inputs) {
   }
 
   inputs &= ~(output_bits_ | input_bits_ | reserved_bits_);
-#ifdef ENABLE_WIDE_GPIO_COMPUTE_MODULE
-  const int kMaxAvailableBit = 45;
-  uses_64_bit_ |= (inputs >> 32) != 0;
-#else
+
   const int kMaxAvailableBit = 31;
-#endif
+
   for (int b = 0; b <= kMaxAvailableBit; ++b) {
     if (inputs & GPIO_BIT(b)) {
       INP_GPIO(b);
     }
   }
+
   input_bits_ |= inputs;
+
   return inputs;
 }
 
-// We are not interested in the _exact_ model, just good enough to determine
-// What to do.
-enum RaspberryPiModel {
-  PI_MODEL_1,
-  PI_MODEL_2,
-  PI_MODEL_3,
-  PI_MODEL_4
-};
 
 static int ReadBinaryFileToBuffer(uint8_t *buffer, size_t size,
                                   const char *filename) {
@@ -251,100 +232,17 @@ static int ReadTextFileToBuffer(char *buffer, size_t size,
   return r;
 }
 
-/*
- * Try to read the revision from /proc/cpuinfo. In case of any errors, or if
- * /proc/cpuinfo simply contains zero as the revision, this function returns
- * zero. This is ok because zero was never used as a real revision code.
- */
-static uint32_t ReadRevisionFromProcCpuinfo() {
-  char buffer[4096];
-  if (ReadTextFileToBuffer(buffer, sizeof(buffer), "/proc/cpuinfo") < 0) {
-    fprintf(stderr, "Reading cpuinfo: Could not determine Pi model\n");
-    return 0;
-  }
-  static const char RevisionTag[] = "Revision";
-  const char *revision_key;
-  if ((revision_key = strstr(buffer, RevisionTag)) == NULL) {
-    fprintf(stderr, "non-existent Revision: Could not determine Pi model\n");
-    return 0;
-  }
-  unsigned int pi_revision;
-  if (sscanf(index(revision_key, ':') + 1, "%x", &pi_revision) != 1) {
-    return 0;
-  }
-  return pi_revision;
-}
-
 // Read a 32-bit big-endian number from a 4-byte buffer.
 static uint32_t read_be32(const uint8_t *p) {
   return p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3];
 }
 
-// Try to read the revision from the devicetree.
-static uint32_t ReadRevisionFromDeviceTree() {
-  const char *const kDeviceTreeRev = "/proc/device-tree/system/linux,revision";
-  uint8_t buffer[4];
-  if (ReadBinaryFileToBuffer(buffer, sizeof(buffer), kDeviceTreeRev) != 4) {
-    fprintf(stderr, "Failed to read revision from %s\n", kDeviceTreeRev);
-    return 0;
-  }
-  return read_be32(buffer);
-}
-
-static RaspberryPiModel DetermineRaspberryModel() {
-  uint32_t pi_revision = ReadRevisionFromProcCpuinfo();
-  if (pi_revision == 0) {
-    pi_revision = ReadRevisionFromDeviceTree();
-    if (pi_revision == 0) {
-      fprintf(stderr, "Unknown Revision: Could not determine Pi model\n");
-      return PI_MODEL_3;  // safe guess fallback.
-    }
-  }
-
-  // https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#raspberry-pi-revision-codes
-  const unsigned pi_type = (pi_revision >> 4) & 0xff;
-  switch (pi_type) {
-  case 0x00: /* A */
-  case 0x01: /* B, Compute Module 1 */
-  case 0x02: /* A+ */
-  case 0x03: /* B+ */
-  case 0x05: /* Alpha ?*/
-  case 0x06: /* Compute Module1 */
-  case 0x09: /* Zero */
-  case 0x0c: /* Zero W */
-    return PI_MODEL_1;
-
-  case 0x04:  /* Pi 2 */
-  case 0x12:  /* Zero W 2 (behaves close to Pi 2) */
-    return PI_MODEL_2;
-
-  case 0x11: /* Pi 4 */
-  case 0x13: /* Pi 400 */
-  case 0x14: /* CM4 */
-    return PI_MODEL_4;
-
-  default:  /* a bunch of versions representing Pi 3 */
-    return PI_MODEL_3;
-  }
-}
-
-static RaspberryPiModel GetPiModel() {
-  static RaspberryPiModel pi_model = DetermineRaspberryModel();
-  return pi_model;
-}
-
 static int GetNumCores() {
-  return GetPiModel() == PI_MODEL_1 ? 1 : 4;
+  return 2;
 }
 
 static uint32_t *mmap_bcm_register(off_t register_offset) {
-  off_t base = BCM2709_PERI_BASE;  // safe fallback guess.
-  switch (GetPiModel()) {
-  case PI_MODEL_1: base = BCM2708_PERI_BASE; break;
-  case PI_MODEL_2: base = BCM2709_PERI_BASE; break;
-  case PI_MODEL_3: base = BCM2709_PERI_BASE; break;
-  case PI_MODEL_4: base = BCM2711_PERI_BASE; break;
-  }
+  off_t base = PERI_BASE;
 
   int mem_fd;
   if ((mem_fd = open("/dev/mem", O_RDWR|O_SYNC) ) < 0) {
@@ -416,32 +314,10 @@ bool GPIO::Init(int slowdown) {
   gpio_clr_bits_low_ = s_GPIO_registers + (0x28 / sizeof(uint32_t));
   gpio_read_bits_low_ = s_GPIO_registers + (0x34 / sizeof(uint32_t));
 
-#ifdef ENABLE_WIDE_GPIO_COMPUTE_MODULE
-  gpio_set_bits_high_ = s_GPIO_registers + (0x20 / sizeof(uint32_t));
-  gpio_clr_bits_high_ = s_GPIO_registers + (0x2C / sizeof(uint32_t));
-  gpio_read_bits_high_ = s_GPIO_registers + (0x38 / sizeof(uint32_t));
-#endif
-
   return true;
 }
 
-bool GPIO::IsPi4() {
-  return GetPiModel() == PI_MODEL_4;
-}
-
 uint32_t JitterAllowanceMicroseconds() {
-  // If this is a Raspberry Pi with more than one core, we add a bit of
-  // additional overhead measured up to the 99.999%-ile: we can allow to burn
-  // a bit more busy-wait CPU cycles to get the timing accurate as we have
-  // more CPU to spare.
-  switch (GetPiModel()) {
-  case PI_MODEL_1:
-    return EMPIRICAL_NANOSLEEP_OVERHEAD_US;  // 99.9%-ile
-  case PI_MODEL_2: case PI_MODEL_3:
-    return EMPIRICAL_NANOSLEEP_OVERHEAD_US + 35;  // 99.999%-ile
-  case PI_MODEL_4:
-    return EMPIRICAL_NANOSLEEP_OVERHEAD_US + 10;  // this one is fast.
-  }
   return EMPIRICAL_NANOSLEEP_OVERHEAD_US;
 }
 
@@ -486,18 +362,19 @@ private:
   const std::vector<int> nano_specs_;
 };
 
-// Check that 3 shows up in isolcpus
+// Check that 1 shows up in isolcpus
 static bool HasIsolCPUs() {
   char buf[256];
   ReadTextFileToBuffer(buf, sizeof(buf), "/sys/devices/system/cpu/isolated");
-  return index(buf, '3') != NULL;
+  return index(buf, '1') != NULL;
 }
 
-static void busy_wait_nanos_rpi_1(long nanos);
-static void busy_wait_nanos_rpi_2(long nanos);
-static void busy_wait_nanos_rpi_3(long nanos);
-static void busy_wait_nanos_rpi_4(long nanos);
-static void (*busy_wait_impl)(long) = busy_wait_nanos_rpi_3;
+static void busy_wait_impl(long nanos) {
+  if (nanos < 20) return;
+  for (uint32_t i = (nanos - 15) * 100 / 73; i != 0; --i) {
+    asm("");
+  }
+}
 
 // Best effort write to file. Used to set kernel parameters.
 static void WriteTo(const char *filename, const char *str) {
@@ -524,23 +401,11 @@ bool Timers::Init() {
   if (!mmap_all_bcm_registers_once())
     return false;
 
-  // Choose the busy-wait loop that fits our Pi.
-  switch (GetPiModel()) {
-  case PI_MODEL_1: busy_wait_impl = busy_wait_nanos_rpi_1; break;
-  case PI_MODEL_2: busy_wait_impl = busy_wait_nanos_rpi_2; break;
-  case PI_MODEL_3: busy_wait_impl = busy_wait_nanos_rpi_3; break;
-  case PI_MODEL_4: busy_wait_impl = busy_wait_nanos_rpi_4; break;
-  }
-
   DisableRealtimeThrottling();
-  // If we have it, we run the update thread on core3. No perf-compromises:
-  WriteTo("/sys/devices/system/cpu/cpu3/cpufreq/scaling_governor",
+  // If we have it, we run the update thread on core1. No perf-compromises:
+  WriteTo("/sys/devices/system/cpu/cpu1/cpufreq/scaling_governor",
           "performance");
 
-  if (GetPiModel() != PI_MODEL_1 && !HasIsolCPUs()) {
-    fprintf(stderr, "Suggestion: to slightly improve display update, add\n\tisolcpus=3\n"
-            "at the end of /boot/cmdline.txt and reboot (see README.md)\n");
-  }
   return true;
 }
 
@@ -583,57 +448,6 @@ void Timers::sleep_nanos(long nanos) {
   busy_wait_impl(nanos);  // Use model-specific busy-loop for remaining time.
 }
 
-static void busy_wait_nanos_rpi_1(long nanos) {
-  if (nanos < 70) return;
-  // The following loop is determined empirically on a 700Mhz RPi
-  for (uint32_t i = (nanos - 70) >> 2; i != 0; --i) {
-    asm("nop");
-  }
-}
-
-static void busy_wait_nanos_rpi_2(long nanos) {
-  if (nanos < 20) return;
-  // The following loop is determined empirically on a 900Mhz RPi 2
-  for (uint32_t i = (nanos - 20) * 100 / 110; i != 0; --i) {
-    asm("");
-  }
-}
-
-static void busy_wait_nanos_rpi_3(long nanos) {
-  if (nanos < 20) return;
-  for (uint32_t i = (nanos - 15) * 100 / 73; i != 0; --i) {
-    asm("");
-  }
-}
-
-static void busy_wait_nanos_rpi_4(long nanos) {
-  if (nanos < 20) return;
-  // Interesting, the Pi4 is _slower_ than the Pi3 ? At least for this busy loop
-  for (uint32_t i = (nanos - 5) * 100 / 132; i != 0; --i) {
-    asm("");
-  }
-}
-
-#if DEBUG_SLEEP_JITTER
-static int overshoot_histogram_us[256] = {0};
-static void print_overshoot_histogram() {
-  fprintf(stderr, "Overshoot histogram >= empirical overhead of %dus\n"
-          "%6s | %7s | %7s\n",
-          JitterAllowanceMicroseconds(), "usec", "count", "accum");
-  int total_count = 0;
-  for (int i = 0; i < 256; ++i) total_count += overshoot_histogram_us[i];
-  int running_count = 0;
-  for (int us = 0; us < 256; ++us) {
-    const int count = overshoot_histogram_us[us];
-    if (count > 0) {
-      running_count += count;
-      fprintf(stderr, "%s%3dus: %8d %7.3f%%\n", (us == 0) ? "<=" : " +",
-              us, count, 100.0 * running_count / total_count);
-    }
-  }
-}
-#endif
-
 // A PinPulser that uses the PWM hardware to create accurate pulses.
 // It only works on GPIO-12 or 18 though.
 class HardwarePinPulser : public PinPulser {
@@ -665,23 +479,6 @@ public:
     : triggered_(false) {
     assert(CanHandle(pins));
     assert(s_CLK_registers && s_PWM_registers && s_Timer1Mhz);
-
-#if DEBUG_SLEEP_JITTER
-    atexit(print_overshoot_histogram);
-#endif
-
-    if (LinuxHasModuleLoaded("snd_bcm2835")) {
-      fprintf(stderr,
-              "\n%s=== snd_bcm2835: found that the Pi sound module is loaded. ===%s\n"
-              "Don't use the built-in sound of the Pi together with this lib; it is known to be\n"
-	      "incompatible and cause trouble and hangs (you can still use external USB sound adapters).\n\n"
-              "See Troubleshooting section in README how to disable the sound module.\n"
-	      "You can also run with --led-no-hardware-pulse to avoid the incompatibility,\n"
-	      "but you will have more flicker.\n"
-              "Exiting; fix the above first or use --led-no-hardware-pulse\n\n",
-              "\033[1;31m", "\033[0m");
-      exit(1);
-    }
 
     for (size_t i = 0; i < specs.size(); ++i) {
       // Hints how long to nanosleep, already corrected for system overhead.
@@ -767,25 +564,13 @@ public:
       if (to_sleep_us > 0) {
         struct timespec sleep_time = { 0, 1000 * to_sleep_us };
         nanosleep(&sleep_time, NULL);
-
-#if DEBUG_SLEEP_JITTER
-        {
-          // Record histogram of realtime jitter how much longer we actually
-          // took.
-          const int total_us = *s_Timer1Mhz - start_time_;
-          const int nanoslept_us = total_us - already_elapsed_usec;
-          int overshoot = nanoslept_us - (to_sleep_us + JitterAllowanceMicroseconds());
-          if (overshoot < 0) overshoot = 0;
-          if (overshoot > 255) overshoot = 255;
-          overshoot_histogram_us[overshoot]++;
-        }
-#endif
       }
     }
 
     while ((s_PWM_registers[PWM_STA] & PWM_STA_EMPT1) == 0) {
       // busy wait until done.
     }
+
     s_PWM_registers[PWM_CTL] = PWM_CTL_USEF1 | PWM_CTL_POLA1 | PWM_CTL_CLRF1;
     triggered_ = false;
   }
@@ -859,3 +644,5 @@ void SleepMicroseconds(long t) {
 }
 
 } // namespace rgb_matrix
+
+#endif

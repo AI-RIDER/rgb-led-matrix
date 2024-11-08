@@ -208,7 +208,7 @@ public:
 
           if(to_sleep_us > 5) {
             // Use to_sleep_us to avoid unnecessary CPU cycles during long wait durations
-            // skip sleeping for small than 5 usc
+            // skip sleeping for small than 5 usec
             struct timespec sleep_time = { 0, (long)to_sleep_us * 1000 };
             nanosleep(&sleep_time, NULL);
           }
