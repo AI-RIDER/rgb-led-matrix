@@ -17,6 +17,8 @@
 // format that is friendly to be dumped to the matrix quickly. Provides methods
 // to manipulate the content.
 
+#ifdef REMI_PI
+
 #include "framebuffer-internal.h"
 
 #include <assert.h>
@@ -885,3 +887,5 @@ void Framebuffer::DumpToMatrix(GPIO *io, int pwm_low_bit) {
 }
 }  // namespace internal
 }  // namespace rgb_matrix
+
+#endif

@@ -1,5 +1,6 @@
 // -*- mode: c++; c-basic-offset: 2; indent-tabs-mode: nil; -*-
 // Copyright (C) 2013 Henner Zeller <h.zeller@acm.org>
+// Modifications for Remi Pi by Neil <qwe17235@gmail.com> on 2024-11
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -61,12 +62,6 @@
  * (The full histogram will be shifted by the EMPIRICAL_NANOSLEEP_OVERHEAD_US
  *  value above. To get a full histogram of OS overhead, set it to 0 first).
  */
-
-// TODO: read from doc
-#define PERI_BASE 0x00000
-
-#define GPIO_REGISTER_OFFSET         0x11030000
-#define COUNTER_1Mhz_REGISTER_OFFSET   0x3000
 
 #define GPIO_PWM_BASE_OFFSET	(GPIO_REGISTER_OFFSET + 0xC000)
 #define GPIO_CLK_BASE_OFFSET	0x101000
@@ -142,78 +137,33 @@ static bool LinuxHasModuleLoaded(const char *name) {
 
 #define GPIO_BIT(x) (1ull << x)
 
-GPIO::GPIO() : output_bits_(0), input_bits_(0), reserved_bits_(0),
-               slowdown_(1)
+GPIO::GPIO() : slowdown_(1)
 {
 }
 
-gpio_bits_t GPIO::InitOutputs(gpio_bits_t outputs,
-                              bool adafruit_pwm_transition_hack_needed) {
-  if (s_GPIO_registers == NULL) {
-    fprintf(stderr, "Attempt to init outputs but not yet Init()-ialized.\n");
-    return 0;
+void GPIO::SetBit(uint32_t addr, uint32_t value) {
+  uint32_t register_addr = (addr >> 8) & 0xff;
+  uint8_t pin = addr & 0xff;
+
+  if(value) {
+    *(s_GPIO_registers+register_addr) |= (1 << pin);
+  } else {
+    *(s_GPIO_registers+register_addr) &= ~(1 << pin);
   }
-
-  // Hack: for the PWM mod, the user soldered together GPIO 18 (new OE)
-  // with GPIO 4 (old OE).
-  // Since they are connected inside the HAT, want to make extra sure that,
-  // whatever the outside system set as pinmux, the old OE is _not_ also
-  // set as output so that these GPIO outputs don't fight each other.
-  //
-  // So explicitly set both of these pins as input initially, so the user
-  // can switch between the two modes "adafruit-hat" and "adafruit-hat-pwm"
-  // without trouble.
-  if (adafruit_pwm_transition_hack_needed) {
-    // TODO: rm adafruit hat in future
-  }
-
-  outputs &= ~(output_bits_ | input_bits_ | reserved_bits_);
-
-  // We don't know exactly what GPIO pins are occupied by 1-wire (can we
-  // easily do that ?), so let's complain only about the default GPIO.
-  if ((outputs & GPIO_BIT(4))
-      && LinuxHasModuleLoaded("w1_gpio")) {
-    // TODO: need more survey for this
-    fprintf(stderr, "This Raspberry Pi has the one-wire protocol enabled.\n"
-            "This will mess with the display if GPIO pins overlap.\n"
-            "Disable 1-wire in raspi-config (Interface Options).\n\n");
-  }
-
-  const int kMaxAvailableBit = 31;
-
-  for (int b = 0; b <= kMaxAvailableBit; ++b) {
-    if (outputs & GPIO_BIT(b)) {
-      INP_GPIO(b);   // for writing, we first need to set as input.
-      OUT_GPIO(b);
-    }
-  }
-
-  output_bits_ |= outputs;
-
-  return outputs;
 }
 
-gpio_bits_t GPIO::RequestInputs(gpio_bits_t inputs) {
-  if (s_GPIO_registers == NULL) {
-    fprintf(stderr, "Attempt to init inputs but not yet Init()-ialized.\n");
-    return 0;
-  }
+void GPIO::SetPinMode(uint32_t addr, uint8_t value) {
+  uint32_t register_addr = (addr >> 8) & 0xff;
+  uint8_t pin = addr & 0xff;
 
-  inputs &= ~(output_bits_ | input_bits_ | reserved_bits_);
+  uint32_t mask = 0x02 << (pin << 2);
 
-  const int kMaxAvailableBit = 31;
+  uint32_t v = (value << (pin << 2));
 
-  for (int b = 0; b <= kMaxAvailableBit; ++b) {
-    if (inputs & GPIO_BIT(b)) {
-      INP_GPIO(b);
-    }
-  }
+  *(s_GPIO_registers+register_addr) &= ~mask;
 
-  input_bits_ |= inputs;
-
-  return inputs;
+  *(s_GPIO_registers+register_addr) |= v;
 }
-
 
 static int ReadBinaryFileToBuffer(uint8_t *buffer, size_t size,
                                   const char *filename) {
@@ -241,7 +191,7 @@ static int GetNumCores() {
   return 2;
 }
 
-static uint32_t *mmap_bcm_register(off_t register_offset) {
+static uint32_t *mmap_g2l_register(off_t register_offset) {
   off_t base = PERI_BASE;
 
   int mem_fd;
@@ -283,20 +233,20 @@ static bool mmap_all_bcm_registers_once() {
   if (s_GPIO_registers != NULL) return true;  // alrady done.
 
   // The common GPIO registers.
-  s_GPIO_registers = mmap_bcm_register(GPIO_REGISTER_OFFSET);
+  s_GPIO_registers = mmap_g2l_register(GPIO_REGISTER_OFFSET);
   if (s_GPIO_registers == NULL) {
     return false;
   }
 
   // Time measurement. Might fail when run as non-root.
-  uint32_t *timereg = mmap_bcm_register(COUNTER_1Mhz_REGISTER_OFFSET);
+  uint32_t *timereg = mmap_g2l_register(COUNTER_1Mhz_REGISTER_OFFSET);
   if (timereg != NULL) {
     s_Timer1Mhz = timereg + 1;
   }
 
   // Hardware pin-pulser. Might fail when run as non-root.
-  s_PWM_registers  = mmap_bcm_register(GPIO_PWM_BASE_OFFSET);
-  s_CLK_registers  = mmap_bcm_register(GPIO_CLK_BASE_OFFSET);
+  s_PWM_registers  = mmap_g2l_register(GPIO_PWM_BASE_OFFSET);
+  s_CLK_registers  = mmap_g2l_register(GPIO_CLK_BASE_OFFSET);
 
   return true;
 }
@@ -309,10 +259,6 @@ bool GPIO::Init(int slowdown) {
   // registers might be needed later.
   if (!mmap_all_bcm_registers_once())
     return false;
-
-  gpio_set_bits_low_ = s_GPIO_registers + (0x1C / sizeof(uint32_t));
-  gpio_clr_bits_low_ = s_GPIO_registers + (0x28 / sizeof(uint32_t));
-  gpio_read_bits_low_ = s_GPIO_registers + (0x34 / sizeof(uint32_t));
 
   return true;
 }
@@ -351,9 +297,10 @@ public:
   }
 
   virtual void SendPulse(int time_spec_number) {
-    io_->ClearBits(bits_);
+    // TODO: use oe addr
+    io_->SetBit(0x00, 1);
     Timers::sleep_nanos(nano_specs_[time_spec_number]);
-    io_->SetBits(bits_);
+    io_->SetBit(0x00, 0);
   }
 
 private:
