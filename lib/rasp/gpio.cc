@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://gnu.org/licenses/gpl-2.0.txt>
 
+#ifdef RASP_PI
+
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 
@@ -859,3 +861,5 @@ void SleepMicroseconds(long t) {
 }
 
 } // namespace rgb_matrix
+
+#endif

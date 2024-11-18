@@ -26,7 +26,7 @@
 #include <vector>
 
 #include "multiplex-mappers-internal.h"
-#include "framebuffer-internal.h"
+#include <framebuffer.h>
 
 #include "gpio.h"
 
@@ -35,7 +35,7 @@ RuntimeOptions::RuntimeOptions() :
 #ifdef RGB_SLOWDOWN_GPIO
   gpio_slowdown(RGB_SLOWDOWN_GPIO),
 #else
-  gpio_slowdown(GPIO::IsPi4() ? 2 : 1),
+  gpio_slowdown(1),
 #endif
   daemon(0),            // Don't become a daemon by default.
   drop_privileges(1),   // Encourage good practice: drop privileges by default.

@@ -3,12 +3,6 @@
 # So
 #   -lrgbmatrix
 ##
-OBJECTS=gpio.o led-matrix.o options-initialize.o framebuffer.o \
-        thread.o bdf-font.o graphics.o led-matrix-c.o hardware-mapping.o \
-        pixel-mapper.o multiplex-mappers.o \
-	content-streamer.o
-
-TARGET=librgbmatrix
 
 ###
 # After you change any of the following DEFINES, make sure to 'make' again.
@@ -175,6 +169,26 @@ INCDIR=../include
 CFLAGS=-W -Wall -Wextra -Wno-unused-parameter -O3 -g -fPIC $(DEFINES) -march=native
 CXXFLAGS=$(CFLAGS) -fno-exceptions -std=c++11
 
+RGB_BOARD_LIBDIR = $(RGB_LIBDIR)/raspberry_pi
+
+BOARD_TYPE ?= remi_pi
+
+BOARD_LIB ?= rasp
+
+ifeq ($(BOARD_TYPE), raspberry_pi)
+  CFLAGS += -DRASP_PI
+else ifeq ($(BOARD_TYPE), remi_pi)
+	BOARD_LIB = remipi
+  CFLAGS += -DREMI_PI
+endif
+
+OBJECTS=$(BOARD_LIB)/gpio.o led-matrix.o options-initialize.o $(BOARD_LIB)/framebuffer.o \
+        thread.o bdf-font.o graphics.o led-matrix-c.o $(BOARD_LIB)/hardware-mapping.o \
+        pixel-mapper.o multiplex-mappers.o \
+	content-streamer.o
+
+TARGET=librgbmatrix
+
 all : $(TARGET).a $(TARGET).so.1
 
 $(TARGET).a : $(OBJECTS)
@@ -185,7 +199,7 @@ $(TARGET).so.1 : $(OBJECTS)
 
 led-matrix.o: led-matrix.cc $(INCDIR)/led-matrix.h
 thread.o : thread.cc $(INCDIR)/thread.h
-framebuffer.o: framebuffer.cc framebuffer-internal.h
+framebuffer.o: $(BOARD_LIB)/framebuffer.cc $(INCDIR)/framebuffer-internal.h
 graphics.o: graphics.cc utf8-internal.h
 
 %.o : %.cc compiler-flags

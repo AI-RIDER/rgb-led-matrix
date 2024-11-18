@@ -13,8 +13,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://gnu.org/licenses/gpl-2.0.txt>
 
-#ifndef RPI_GPIO_INTERNAL_H
-#define RPI_GPIO_INTERNAL_H
+#ifdef RASP_PI
+
+#ifndef GPIO_INTERNAL_H
+#define GPIO_INTERNAL_H
 
 #include "gpio-bits.h"
 
@@ -166,3 +168,5 @@ uint32_t JitterAllowanceMicroseconds();
 }  // end namespace rgb_matrix
 
 #endif  // RPI_GPIO_INGERNALH
+
+#endif

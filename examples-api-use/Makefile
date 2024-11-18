@@ -16,10 +16,12 @@ LDFLAGS+=-L$(RGB_LIBDIR) -l$(RGB_LIBRARY_NAME) -lrt -lm -lpthread
 MAGICK_CXXFLAGS?=$(shell GraphicsMagick++-config --cppflags --cxxflags)
 MAGICK_LDFLAGS?=$(shell GraphicsMagick++-config --ldflags --libs)
 
+BOARD_TYPE ?= raspberry_pi
+
 all : $(BINARIES)
 
 $(RGB_LIBRARY): FORCE
-	$(MAKE) -C $(RGB_LIBDIR)
+	$(MAKE) -C $(RGB_LIBDIR) BOARD_TYPE=$(BOARD_TYPE)
 
 demo : demo-main.o $(RGB_LIBRARY)
 	$(CXX) $< -o $@ $(LDFLAGS)
