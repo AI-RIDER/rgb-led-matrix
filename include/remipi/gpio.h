@@ -15,8 +15,8 @@
 
 #ifdef REMI_PI
 
-#ifndef RPI_GPIO_INTERNAL_H
-#define RPI_GPIO_INTERNAL_H
+#ifndef GPIO_INTERNAL_H
+#define GPIO_INTERNAL_H
 
 #include "gpio-bits.h"
 
@@ -28,19 +28,79 @@
 #define LED_MATRIX_ALLOW_BARRIER_DELAY 0
 #endif
 
-#define PERI_BASE 0x11030000
-
-#define GPIO_REGISTER_OFFSET         0x10
-#define GPIO_MODE_REGISTER_OFFSET 0x0210
-
-#define COUNTER_1Mhz_REGISTER_OFFSET   0x3000
-
-#define RZ_G2L_PIN(g, pin) ((GPIO_REGISTER_OFFSET + g) & 0xff << 8) + (pin & 0xff)
-#define RZ_G2L_MODE(g, pin) ((GPIO_MODE_REGISTER_OFFSET + g * 2) & 0xffff << 8) + (pin & 0xff)
-
 // Putting this in our namespace to not collide with other things called like
 // this.
 namespace rgb_matrix {
+
+namespace internal {
+
+struct InternalHardwareMapping {
+  const char *name;
+  int max_parallel_chains;
+
+  uint32_t output_enable;
+  uint32_t clock;
+  uint32_t strobe;
+
+  uint32_t a, b, c, d, e;
+
+  uint32_t p0_r1, p0_g1, p0_b1;
+  uint32_t p0_r2, p0_g2, p0_b2;
+
+  uint32_t p1_r1, p1_g1, p1_b1;
+  uint32_t p1_r2, p1_g2, p1_b2;
+
+  uint32_t p2_r1, p2_g1, p2_b1;
+  uint32_t p2_r2, p2_g2, p2_b2;
+
+  uint32_t p3_r1, p3_g1, p3_b1;
+  uint32_t p3_r2, p3_g2, p3_b2;
+
+  uint32_t p4_r1, p4_g1, p4_b1;
+  uint32_t p4_r2, p4_g2, p4_b2;
+
+  uint32_t p5_r1, p5_g1, p5_b1;
+  uint32_t p5_r2, p5_g2, p5_b2;
+};
+
+struct InternalHardwareModeMapping {
+  const char *name;
+  int max_parallel_chains;
+
+  uint32_t output_enable;
+  uint32_t clock;
+  uint32_t strobe;
+
+  uint32_t a, b, c, d, e;
+
+  uint32_t p0_r1, p0_g1, p0_b1;
+  uint32_t p0_r2, p0_g2, p0_b2;
+
+  uint32_t p1_r1, p1_g1, p1_b1;
+  uint32_t p1_r2, p1_g2, p1_b2;
+
+  uint32_t p2_r1, p2_g1, p2_b1;
+  uint32_t p2_r2, p2_g2, p2_b2;
+
+  uint32_t p3_r1, p3_g1, p3_b1;
+  uint32_t p3_r2, p3_g2, p3_b2;
+
+  uint32_t p4_r1, p4_g1, p4_b1;
+  uint32_t p4_r2, p4_g2, p4_b2;
+
+  uint32_t p5_r1, p5_g1, p5_b1;
+  uint32_t p5_r2, p5_g2, p5_b2;
+};
+
+struct RGBPinMap {
+  uint32_t bit;
+  uint32_t pin;
+};
+
+extern struct InternalHardwareMapping internal_hardware_mappings;
+extern struct RGBPinMap rgb_pin_mapping[3][6];
+}
+
 // For now, everything is initialized as output.
 class GPIO {
 public:
@@ -50,18 +110,41 @@ public:
   // (e.g. due to a permission problem).
   bool Init(int slowdown);
 
-  void SetBit(uint32_t addr, uint32_t value);
-  void SetPinMode(uint32_t addr, uint8_t value);
+  inline void SetBit(uint32_t addr, uint32_t value) {
+    uint32_t register_addr = (addr >> 8) & 0xffff;
+    uint8_t pin = addr & 0xff;
 
-private:
-  inline void delay() const {
+    if(value) {
+      *(gpio_register+register_addr) |= (0x01 << pin);
+    } else {
+      *(gpio_register+register_addr) &= ~(0x01 << pin);
+    }
+  }
+
+  inline void SetPinMode(uint32_t addr, uint8_t value) {
+    uint32_t register_addr = (addr >> 8) & 0xff;
+    uint32_t pin = addr & 0xff;
+
+    uint32_t mask = 0x02 << (pin << 2);
+
+    uint32_t v = (value << (pin << 2));
+
+    *(gpio_register+register_addr) &= ~mask;
+
+    *(gpio_register+register_addr) |= v;
+  }
+
+  void delay() const {
     for (int n = 0; n < slowdown_; n++) {
-
+      asm("nop");
     }
   }
 
 private:
   int slowdown_;
+
+  volatile uint8_t *gpio_register;
+  uint8_t gpio_tm_[48];
 };
 
 // A PinPulser is a utility class that pulses a GPIO pin. There can be various
@@ -91,12 +174,14 @@ public:
 // if possible and a terrible slow fallback otherwise.
 uint32_t GetMicrosecondCounter();
 
+uint64_t GetNanosecondCounter();
+
 void SleepMicroseconds(long);
 
 uint32_t JitterAllowanceMicroseconds();
 
 }  // end namespace rgb_matrix
 
-#endif  // RPI_GPIO_INGERNALH
+#endif  // REMI_PI_GPIO_INTERNAL_H
 
 #endif

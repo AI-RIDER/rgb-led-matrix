@@ -19,7 +19,7 @@
 
 #ifdef REMI_PI
 
-#include "framebuffer-internal.h"
+#include <framebuffer.h>
 
 #include <assert.h>
 #include <ctype.h>
@@ -101,7 +101,13 @@ public:
 
   virtual void SetRowAddress(GPIO *io, int row) {
     if (row == last_row_) return;
-    io->WriteMaskedBits(row_lookup_[row], row_mask_);
+    gpio_bits_t lookup = row_lookup_[row];
+    for(int i = 0; i < 5; i++) {
+      uint32_t v = (lookup >> pin_bits[i]) & 0x01;
+
+      io->SetBit(pins[i], v);
+    }
+
     last_row_ = row;
   }
 
@@ -109,136 +115,22 @@ private:
   gpio_bits_t row_mask_;
   gpio_bits_t row_lookup_[32];
   int last_row_;
-};
 
-// The SM5266RowAddressSetter (ABC Shifter + DE direct) sets bits ABC using
-// a 8 bit shifter and DE directly. The panel this works with has 8 SM5266
-// shifters (4 for the top 32 rows and 4 for the bottom 32 rows).
-// DE is used to select the active shifter
-// (rows 1-8/33-40, 9-16/41-48, 17-24/49-56, 25-32/57-64).
-// Rows are enabled by shifting in 8 bits (high bit first) with a high bit
-// enabling that row. This allows up to 8 rows per group to be active at the
-// same time (if they have the same content), but that isn't implemented here.
-// BK, DIN and DCK are the designations on the SM5266P datasheet.
-// BK = Enable Input, DIN = Serial In, DCK = Clock
-class SM5266RowAddressSetter : public RowAddressSetter {
-public:
-  SM5266RowAddressSetter(int double_rows, const HardwareMapping &h)
-    : row_mask_(h.a | h.b | h.c),
-      last_row_(-1),
-      bk_(h.c),
-      din_(h.b),
-      dck_(h.a) {
-    assert(double_rows <= 32); // designed for up to 1/32 panel
-    if (double_rows > 8)  row_mask_ |= h.d;
-    if (double_rows > 16) row_mask_ |= h.e;
-    for (int i = 0; i < double_rows; ++i) {
-      gpio_bits_t row_address = 0;
-      row_address |= (i & 0x08) ? h.d : 0;
-      row_address |= (i & 0x10) ? h.e : 0;
-      row_lookup_[i] = row_address;
-    }
-  }
+  const uint32_t pins[5] = {
+    internal_hardware_mappings.a,
+    internal_hardware_mappings.b,
+    internal_hardware_mappings.c,
+    internal_hardware_mappings.d,
+    internal_hardware_mappings.e
+  };
 
-  virtual gpio_bits_t need_bits() const { return row_mask_; }
-
-  virtual void SetRowAddress(GPIO *io, int row) {
-    if (row == last_row_) return;
-    io->SetBits(bk_);  // Enable serial input for the shifter
-    for (int r = 7; r >= 0; r--) {
-      if (row % 8 == r) {
-        io->SetBits(din_);
-      } else {
-        io->ClearBits(din_);
-      }
-      io->SetBits(dck_);
-      io->SetBits(dck_);  // Longer clock time; tested with Pi3
-      io->ClearBits(dck_);
-    }
-    io->ClearBits(bk_);  // Disable serial input to keep unwanted bits out of the shifters
-    last_row_ = row;
-    // Set bits D and E to enable the proper shifter to display the selected
-    // row.
-    io->WriteMaskedBits(row_lookup_[row], row_mask_);
-  }
-
-private:
-  gpio_bits_t row_mask_;
-  int last_row_;
-  const gpio_bits_t bk_;
-  const gpio_bits_t din_;
-  const gpio_bits_t dck_;
-  gpio_bits_t row_lookup_[32];
-};
-
-class ShiftRegisterRowAddressSetter : public RowAddressSetter {
-public:
-  ShiftRegisterRowAddressSetter(int double_rows, const HardwareMapping &h)
-    : double_rows_(double_rows),
-      row_mask_(h.a | h.b), clock_(h.a), data_(h.b),
-      last_row_(-1) {
-  }
-  virtual gpio_bits_t need_bits() const { return row_mask_; }
-
-  virtual void SetRowAddress(GPIO *io, int row) {
-    if (row == last_row_) return;
-    for (int activate = 0; activate < double_rows_; ++activate) {
-      io->ClearBits(clock_);
-      if (activate == double_rows_ - 1 - row) {
-        io->ClearBits(data_);
-      } else {
-        io->SetBits(data_);
-      }
-      io->SetBits(clock_);
-    }
-    io->ClearBits(clock_);
-    io->SetBits(clock_);
-    last_row_ = row;
-  }
-
-private:
-  const int double_rows_;
-  const gpio_bits_t row_mask_;
-  const gpio_bits_t clock_;
-  const gpio_bits_t data_;
-  int last_row_;
-};
-
-// Issue #823
-// An shift register row address setter that does not use B but C for the
-// data. Clock is inverted.
-class ABCShiftRegisterRowAddressSetter : public RowAddressSetter {
-public:
-  ABCShiftRegisterRowAddressSetter(int double_rows, const HardwareMapping &h)
-    : double_rows_(double_rows),
-      row_mask_(h.a | h.c),
-      clock_(h.a),
-      data_(h.c),
-      last_row_(-1) {
-  }
-  virtual gpio_bits_t need_bits() const { return row_mask_; }
-
-  virtual void SetRowAddress(GPIO *io, int row) {
-    for (int activate = 0; activate < double_rows_; ++activate) {
-      io->ClearBits(clock_);
-      if (activate == double_rows_ - 1 - row) {
-        io->SetBits(data_);
-      } else {
-        io->ClearBits(data_);
-      }
-      io->SetBits(clock_);
-    }
-    io->SetBits(clock_);
-    io->ClearBits(clock_);
-    last_row_ = row;
-  }
-
-private:
-  const int double_rows_;
-  const gpio_bits_t row_mask_;
-  const gpio_bits_t clock_;
-  const gpio_bits_t data_;
-  int last_row_;
+  const uint32_t pin_bits[5] = {
+    22,
+    23,
+    24,
+    25,
+    15
+  };
 };
 
 // The DirectABCDRowAddressSetter sets the address by one of
@@ -271,7 +163,12 @@ public:
 
     gpio_bits_t row_address = row_lines_[row % 4];
 
-    io->WriteMaskedBits(row_address, row_mask_);
+    for(int i = 0; i < 4; i++) {
+      uint32_t v = (row_address >> i) & 0x01;
+
+      io->SetBit(pins[i], v);
+    }
+
     last_row_ = row;
   }
 
@@ -279,6 +176,14 @@ private:
   gpio_bits_t row_lines_[4];
   gpio_bits_t row_mask_;
   int last_row_;
+
+  const uint32_t pins[5] = {
+    internal_hardware_mappings.a,
+    internal_hardware_mappings.b,
+    internal_hardware_mappings.c,
+    internal_hardware_mappings.d
+  };
+
 };
 
 }
@@ -351,7 +256,7 @@ Framebuffer::~Framebuffer() {
 
 // TODO: this should also be parsed from some special formatted string, e.g.
 // {addr={22,23,24,25,15},oe=18,clk=17,strobe=4, p0={11,27,7,8,9,10},...}
-/* static */ void Framebuffer::InitHardwareMapping(const char *named_hardware) {
+void Framebuffer::InitHardwareMapping(const char *named_hardware) {
   if (named_hardware == NULL || *named_hardware == '\0') {
     named_hardware = "regular";
   }
@@ -375,26 +280,21 @@ Framebuffer::~Framebuffer() {
     abort();
   }
 
-  if (mapping->max_parallel_chains == 0) {
-    // Auto determine.
-    struct HardwareMapping *h = mapping;
-    if ((h->p0_r1 | h->p0_g1 | h->p0_g1 | h->p0_r2 | h->p0_g2 | h->p0_g2) > 0)
-      ++mapping->max_parallel_chains;
-    if ((h->p1_r1 | h->p1_g1 | h->p1_g1 | h->p1_r2 | h->p1_g2 | h->p1_g2) > 0)
-      ++mapping->max_parallel_chains;
-    if ((h->p2_r1 | h->p2_g1 | h->p2_g1 | h->p2_r2 | h->p2_g2 | h->p2_g2) > 0)
-      ++mapping->max_parallel_chains;
-    if ((h->p3_r1 | h->p3_g1 | h->p3_g1 | h->p3_r2 | h->p3_g2 | h->p3_g2) > 0)
-      ++mapping->max_parallel_chains;
-    if ((h->p4_r1 | h->p4_g1 | h->p4_g1 | h->p4_r2 | h->p4_g2 | h->p4_g2) > 0)
-      ++mapping->max_parallel_chains;
-    if ((h->p5_r1 | h->p5_g1 | h->p5_g1 | h->p5_r2 | h->p5_g2 | h->p5_g2) > 0)
-      ++mapping->max_parallel_chains;
-  }
+  mapping->max_parallel_chains = 0;
+
+  // Auto determine.
+  struct HardwareMapping *h = mapping;
+  if ((h->p0_r1 | h->p0_g1 | h->p0_g1 | h->p0_r2 | h->p0_g2 | h->p0_g2) > 0)
+    ++mapping->max_parallel_chains;
+  if ((h->p1_r1 | h->p1_g1 | h->p1_g1 | h->p1_r2 | h->p1_g2 | h->p1_g2) > 0)
+    ++mapping->max_parallel_chains;
+  if ((h->p2_r1 | h->p2_g1 | h->p2_g1 | h->p2_r2 | h->p2_g2 | h->p2_g2) > 0)
+    ++mapping->max_parallel_chains;
+
   hardware_mapping_ = mapping;
 }
 
-/* static */ void Framebuffer::InitGPIO(GPIO *io, int rows, int parallel,
+void Framebuffer::InitGPIO(GPIO *io, int rows, int parallel,
                                         bool allow_hardware_pulsing,
                                         int pwm_lsb_nanoseconds,
                                         int dither_bits,
@@ -427,34 +327,20 @@ Framebuffer::~Framebuffer() {
 
   const int double_rows = rows / SUB_PANELS_;
   switch (row_address_type) {
+    /**
+     * Currently, we just support DirectRowAddressSetter and DirectABCDLineRowAddressSetter
+     */
   case 0:
     row_setter_ = new DirectRowAddressSetter(double_rows, h);
     break;
-  case 1:
-    row_setter_ = new ShiftRegisterRowAddressSetter(double_rows, h);
-    break;
   case 2:
     row_setter_ = new DirectABCDLineRowAddressSetter(double_rows, h);
-    break;
-  case 3:
-    row_setter_ = new ABCShiftRegisterRowAddressSetter(double_rows, h);
-    break;
-  case 4:
-    row_setter_ = new SM5266RowAddressSetter(double_rows, h);
     break;
   default:
     assert(0);  // unexpected type.
   }
 
   all_used_bits |= row_setter_->need_bits();
-
-  // Adafruit HAT identified by the same prefix.
-  const bool is_some_adafruit_hat = (0 == strncmp(h.name, "adafruit-hat",
-                                                  strlen("adafruit-hat")));
-  // Initialize outputs, make sure that all of these are supported bits.
-  const gpio_bits_t result = io->InitOutputs(all_used_bits,
-                                             is_some_adafruit_hat);
-  assert(result == all_used_bits);  // Impl: all bits declared in gpio.cc ?
 
   std::vector<int> bitplane_timings;
   uint32_t timing_ns = pwm_lsb_nanoseconds;
@@ -467,102 +353,10 @@ Framebuffer::~Framebuffer() {
                                           bitplane_timings);
 }
 
-// NOTE: first version for panel initialization sequence, need to refine
-// until it is more clear how different panel types are initialized to be
-// able to abstract this more.
-
-static void InitFM6126(GPIO *io, const struct HardwareMapping &h, int columns) {
-  const gpio_bits_t bits_on
-    = h.p0_r1 | h.p0_g1 | h.p0_b1 | h.p0_r2 | h.p0_g2 | h.p0_b2
-    | h.p1_r1 | h.p1_g1 | h.p1_b1 | h.p1_r2 | h.p1_g2 | h.p1_b2
-    | h.p2_r1 | h.p2_g1 | h.p2_b1 | h.p2_r2 | h.p2_g2 | h.p2_b2
-    | h.p3_r1 | h.p3_g1 | h.p3_b1 | h.p3_r2 | h.p3_g2 | h.p3_b2
-    | h.p4_r1 | h.p4_g1 | h.p4_b1 | h.p4_r2 | h.p4_g2 | h.p4_b2
-    | h.p5_r1 | h.p5_g1 | h.p5_b1 | h.p5_r2 | h.p5_g2 | h.p5_b2
-    | h.a;  // Address bit 'A' is always on.
-  const gpio_bits_t bits_off = h.a;
-  const gpio_bits_t mask = bits_on | h.strobe;
-
-  // Init bits. TODO: customize, as we can do things such as brightness here,
-  // which would allow more higher quality output.
-  static const char* init_b12 = "0111111111111111";  // full bright
-  static const char* init_b13 = "0000000001000000";  // panel on.
-
-  io->ClearBits(h.clock | h.strobe);
-
-  for (int i = 0; i < columns; ++i) {
-    gpio_bits_t value = init_b12[i % 16] == '0' ? bits_off : bits_on;
-    if (i > columns - 12) value |= h.strobe;
-    io->WriteMaskedBits(value, mask);
-    io->SetBits(h.clock);
-    io->ClearBits(h.clock);
-  }
-  io->ClearBits(h.strobe);
-
-  for (int i = 0; i < columns; ++i) {
-    gpio_bits_t value = init_b13[i % 16] == '0' ? bits_off : bits_on;
-    if (i > columns - 13) value |= h.strobe;
-    io->WriteMaskedBits(value, mask);
-    io->SetBits(h.clock);
-    io->ClearBits(h.clock);
-  }
-  io->ClearBits(h.strobe);
-}
-
-// The FM6217 is very similar to the FM6216.
-// FM6217 adds Register 3 to allow for automatic bad pixel supression.
-static void InitFM6127(GPIO *io, const struct HardwareMapping &h, int columns) {
-  const gpio_bits_t bits_r_on= h.p0_r1 | h.p0_r2;
-  const gpio_bits_t bits_g_on= h.p0_g1 | h.p0_g2;
-  const gpio_bits_t bits_b_on= h.p0_b1 | h.p0_b2;
-  const gpio_bits_t bits_on= bits_r_on | bits_g_on | bits_b_on;
-  const gpio_bits_t bits_off = 0;
-
-  const gpio_bits_t mask = bits_on | h.strobe;
-
-  static const char* init_b12 = "1111111111001110";  // register 1
-  static const char* init_b13 = "1110000001100010";  // register 2.
-  static const char* init_b11 = "0101111100000000";  // register 3.
-  io->ClearBits(h.clock | h.strobe);
-  for (int i = 0; i < columns; ++i) {
-    gpio_bits_t value = init_b12[i % 16] == '0' ? bits_off : bits_on;
-    if (i > columns - 12) value |= h.strobe;
-    io->WriteMaskedBits(value, mask);
-    io->SetBits(h.clock);
-    io->ClearBits(h.clock);
-  }
-  io->ClearBits(h.strobe);
-
-  for (int i = 0; i < columns; ++i) {
-    gpio_bits_t value = init_b13[i % 16] == '0' ? bits_off : bits_on;
-    if (i > columns - 13) value |= h.strobe;
-    io->WriteMaskedBits(value, mask);
-    io->SetBits(h.clock);
-    io->ClearBits(h.clock);
-  }
-  io->ClearBits(h.strobe);
-
-  for (int i = 0; i < columns; ++i) {
-    gpio_bits_t value = init_b11[i % 16] == '0' ? bits_off : bits_on;
-    if (i > columns - 11) value |= h.strobe;
-    io->WriteMaskedBits(value, mask);
-    io->SetBits(h.clock);
-    io->ClearBits(h.clock);
-  }
-  io->ClearBits(h.strobe);
-}
-
-/*static*/ void Framebuffer::InitializePanels(GPIO *io,
+void Framebuffer::InitializePanels(GPIO *io,
                                               const char *panel_type,
                                               int columns) {
   if (!panel_type || panel_type[0] == '\0') return;
-  if (strncasecmp(panel_type, "fm6126", 6) == 0) {
-    InitFM6126(io, *hardware_mapping_, columns);
-  }
-  else if (strncasecmp(panel_type, "fm6127", 6) == 0) {
-    InitFM6127(io, *hardware_mapping_, columns);
-  }
-  // else if (strncasecmp(...))  // more init types
   else {
     fprintf(stderr, "Unknown panel type '%s'; typo ?\n", panel_type);
   }
@@ -866,22 +660,34 @@ void Framebuffer::DumpToMatrix(GPIO *io, int pwm_low_bit) {
       // data.
       for (int col = 0; col < columns_; ++col) {
         const gpio_bits_t &out = *row_data++;
-        io->WriteMaskedBits(out, color_clk_mask);  // col + reset clock
-        io->SetBits(h.clock);               // Rising edge: clock color in.
+
+        // for(int c = 0; c < hardware_mapping_->max_parallel_chains; c++) {
+        //   RGBPinMap* pin_map = *(rgb_pin_mapping + c);
+
+        //   for(int p = 0; p < 6; p++) {
+        //     uint32_t v = (out >> (pin_map+p)->bit) && 0x01;
+
+        //     //io->SetBit((pin_map+p)->pin, v);
+        //   }
+        // }
+
+        io->SetBit(internal_hardware_mappings.clock, 0x01);  // col + reset clock
+        io->delay();
+        io->SetBit(internal_hardware_mappings.clock, 0x00);
       }
-      io->ClearBits(color_clk_mask);    // clock back to normal.
 
       // OE of the previous row-data must be finished before strobe.
-      sOutputEnablePulser->WaitPulseFinished();
+      //sOutputEnablePulser->WaitPulseFinished();
 
       // Setting address and strobing needs to happen in dark time.
       row_setter_->SetRowAddress(io, d_row);
 
-      io->SetBits(h.strobe);   // Strobe in the previously clocked in row.
-      io->ClearBits(h.strobe);
+      io->SetBit(internal_hardware_mappings.strobe, 0x01);
+      io->delay();
+      io->SetBit(internal_hardware_mappings.strobe, 0x00);
 
       // Now switch on for the sleep time necessary for that bit-plane.
-      sOutputEnablePulser->SendPulse(b);
+      //sOutputEnablePulser->SendPulse(b);
     }
   }
 }

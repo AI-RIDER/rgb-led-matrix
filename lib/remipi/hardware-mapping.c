@@ -21,48 +21,7 @@
 
 #include "hardware-mapping.h"
 
-#include <gpio.h>
-
-struct HardwareMapping inter_hardware_mappings[] = {
-    {
-    .name          = "regular",
-
-    .output_enable = RZ_G2L_PIN(32, 1),
-    .clock         = RZ_G2L_PIN(40, 2),
-    .strobe        = RZ_G2L_PIN(22, 1),
-
-    /* Address lines */
-    .a             = RZ_G2L_PIN(23, 0),
-    .b             = RZ_G2L_PIN(44, 1),
-    .c             = RZ_G2L_PIN(44, 0),
-    .d             = RZ_G2L_PIN(32, 0),
-    .e             = RZ_G2L_PIN(2, 1),  /* RxD kept free unless 1:64 */
-
-    /* Parallel chain 0, RGB for both sub-panels */
-    .p0_r1         = RZ_G2L_PIN(47, 0),
-    .p0_g1         = RZ_G2L_PIN(4, 1),
-    .p0_b1         = RZ_G2L_PIN(33, 0),
-    .p0_r2         = RZ_G2L_PIN(47, 3),
-    .p0_g2         = RZ_G2L_PIN(47, 2),
-    .p0_b2         = RZ_G2L_PIN(47, 1),
-
-    /* Chain 1 */
-    .p1_r1         = RZ_G2L_PIN(36, 1),
-    .p1_g1         = RZ_G2L_PIN(23, 1),
-    .p1_b1         = RZ_G2L_PIN(27, 0),
-    .p1_r2         = RZ_G2L_PIN(48, 3),
-    .p1_g2         = RZ_G2L_PIN(46, 3),
-    .p1_b2         = RZ_G2L_PIN(19, 1),
-
-    /* Chain 2 */
-    .p2_r1         = RZ_G2L_PIN(2, 0),
-    .p2_g1         = RZ_G2L_PIN(3, 0),
-    .p2_b1         = RZ_G2L_PIN(3, 1),
-    .p2_r2         = RZ_G2L_PIN(48, 0),
-    .p2_g2         = RZ_G2L_PIN(42, 4),
-    .p2_b2         = RZ_G2L_PIN(48, 1),
-  }
-}
+#define GPIO_BIT(b) ((uint64_t)1<<(b))
 
 struct HardwareMapping matrix_hardware_mappings[] = {
   /*
@@ -255,76 +214,6 @@ struct HardwareMapping matrix_hardware_mappings[] = {
     .p0_g2         = GPIO_BIT(24),
     .p0_b2         = GPIO_BIT(25),
   },
-
-#ifdef ENABLE_WIDE_GPIO_COMPUTE_MODULE
-  /*
-   * Custom pin-out for compute-module
-   */
-  {
-    .name          = "compute-module",
-
-    /* This GPIO mapping is made for the official I/O development
-     * board. No pin is left free when using 6 parallel chains.
-     */
-    .output_enable = GPIO_BIT(18),
-    .clock         = GPIO_BIT(16),
-    .strobe        = GPIO_BIT(17),
-
-    .a             = GPIO_BIT(2),
-    .b             = GPIO_BIT(3),
-    .c             = GPIO_BIT(4),
-    .d             = GPIO_BIT(5),
-    .e             = GPIO_BIT(6),  /* RxD kept free unless 1:64 */
-
-    /* Chain 0 */
-    .p0_r1         = GPIO_BIT(7),
-    .p0_g1         = GPIO_BIT(8),
-    .p0_b1         = GPIO_BIT(9),
-    .p0_r2         = GPIO_BIT(10),
-    .p0_g2         = GPIO_BIT(11),
-    .p0_b2         = GPIO_BIT(12),
-
-    /* Chain 1 */
-    .p1_r1         = GPIO_BIT(13),
-    .p1_g1         = GPIO_BIT(14),
-    .p1_b1         = GPIO_BIT(15),
-    .p1_r2         = GPIO_BIT(19),
-    .p1_g2         = GPIO_BIT(20),
-    .p1_b2         = GPIO_BIT(21),
-
-    /* Chain 2 */
-    .p2_r1         = GPIO_BIT(22),
-    .p2_g1         = GPIO_BIT(23),
-    .p2_b1         = GPIO_BIT(24),
-    .p2_r2         = GPIO_BIT(25),
-    .p2_g2         = GPIO_BIT(26),
-    .p2_b2         = GPIO_BIT(27),
-
-    /* Chain 3 */
-    .p3_r1         = GPIO_BIT(28),
-    .p3_g1         = GPIO_BIT(29),
-    .p3_b1         = GPIO_BIT(30),
-    .p3_r2         = GPIO_BIT(31),
-    .p3_g2         = GPIO_BIT(32),
-    .p3_b2         = GPIO_BIT(33),
-
-    /* Chain 4 */
-    .p4_r1         = GPIO_BIT(34),
-    .p4_g1         = GPIO_BIT(35),
-    .p4_b1         = GPIO_BIT(36),
-    .p4_r2         = GPIO_BIT(37),
-    .p4_g2         = GPIO_BIT(38),
-    .p4_b2         = GPIO_BIT(39),
-
-    /* Chain 5 */
-    .p5_r1         = GPIO_BIT(40),
-    .p5_g1         = GPIO_BIT(41),
-    .p5_b1         = GPIO_BIT(42),
-    .p5_r2         = GPIO_BIT(43),
-    .p5_g2         = GPIO_BIT(44),
-    .p5_b2         = GPIO_BIT(45),
-  },
-#endif
 
   {0}
 };

@@ -29,9 +29,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <framebuffer.h>
+
 #include "gpio.h"
 #include "thread.h"
-#include "framebuffer-internal.h"
 #include "multiplex-mappers-internal.h"
 
 // Leave this in here for a while. Setting things from old defines.
@@ -165,7 +166,7 @@ public:
     bool max_measure_enabled = false;
 
     while (running()) {
-      const uint32_t start_time_us = GetMicrosecondCounter();
+      const uint32_t start_usec = GetMicrosecondCounter();
 
       current_frame_->framebuffer()
         ->DumpToMatrix(io_, start_bit_[low_bit_sequence % 4]);
@@ -187,7 +188,8 @@ public:
         }
       }
 
-      // Read input bits.
+      // Only Read input bits when use raspberry pi
+      #ifdef RASP_PI
       const gpio_bits_t inputs = io_->Read();
       if (inputs != last_gpio_bits) {
         last_gpio_bits = inputs;
@@ -195,36 +197,61 @@ public:
         gpio_inputs_ = inputs;
         pthread_cond_signal(&input_change_);
       }
+      #endif
 
       ++frame_count;
       ++low_bit_sequence;
 
+      uint32_t current_usec = GetMicrosecondCounter();
+      uint32_t elapsed_us = current_usec - start_usec;
+
+      if(current_usec < start_usec) {
+        elapsed_us = 0xffffffff - start_usec + current_usec;
+      }
+
       if (target_frame_usec_) {
         if (allow_busy_waiting_) {
-          const uint32_t elapsed_us = GetMicrosecondCounter() - start_time_us;
+          const uint32_t to_sleep_us = (target_frame_usec_ - elapsed_us) - JitterAllowanceMicroseconds();
 
-          // 3 usec for tuning
-          const uint32_t to_sleep_us = (target_frame_usec_ - elapsed_us) - JitterAllowanceMicroseconds() - 3;
-
-          if(to_sleep_us > 5) {
+          if(to_sleep_us > 2) {
             // Use to_sleep_us to avoid unnecessary CPU cycles during long wait durations
-            // skip sleeping for small than 5 usec
+            // skip sleeping for small than 2 usec
             struct timespec sleep_time = { 0, (long)to_sleep_us * 1000 };
             nanosleep(&sleep_time, NULL);
           }
 
-          while ((GetMicrosecondCounter() - start_time_us) < target_frame_usec_) {
-            // busy wait.
+          current_usec = GetMicrosecondCounter();
+
+          elapsed_us = current_usec - start_usec;
+
+          if(current_usec < start_usec) {
+            elapsed_us = 0xffffffff - start_usec + current_usec;
+          }
+
+          while(target_frame_usec_ > elapsed_us) {
+            // busy wait
+            current_usec = GetMicrosecondCounter();
+
+            elapsed_us = current_usec - start_usec;
+
+            if(current_usec < start_usec) {
+              elapsed_us = 0xffffffff - start_usec + current_usec;
+            }
           }
         } else {
-          long spent_us = GetMicrosecondCounter() - start_time_us;
-          SleepMicroseconds(target_frame_usec_ - spent_us);
+          if(target_frame_usec_ > elapsed_us) {
+            SleepMicroseconds(target_frame_usec_ - elapsed_us);
+          }
         }
       }
 
       const uint32_t end_time_us = GetMicrosecondCounter();
       if (show_refresh_) {
-        uint32_t usec = end_time_us - start_time_us;
+        uint32_t usec = end_time_us - start_usec;
+        if(end_time_us < start_usec) {
+          usec = 0xffffffff - start_usec + end_time_us;
+        }
+
         printf("\b\b\b\b\b\b\b\b%6.1fHz", 1e6 / usec);
         if (usec > largest_time && max_measure_enabled) {
           largest_time = usec;
@@ -437,17 +464,31 @@ RGBMatrix::~RGBMatrix() {
 }
 
 uint64_t RGBMatrix::Impl::RequestInputs(uint64_t bits) {
+  #ifdef RASP_PI
   return io_->RequestInputs(static_cast<gpio_bits_t>(bits));
+  #else
+  // TODO: need to handle this when board is not raspberry pi
+  return bits;
+  #endif
 }
 
 uint64_t RGBMatrix::Impl::RequestOutputs(uint64_t output_bits) {
+  #ifdef RASP_PI
   uint64_t success_bits = io_->InitOutputs(static_cast<gpio_bits_t>(output_bits));
   user_output_bits_ |= success_bits;
   return success_bits;
+  #else
+  // TODO: need to handle this when board is not raspberry pi
+  return output_bits;
+  #endif
 }
 
 void RGBMatrix::Impl::OutputGPIO(uint64_t output_bits) {
+  #ifdef RASP_PI
   io_->WriteMaskedBits(static_cast<gpio_bits_t>(output_bits), static_cast<gpio_bits_t>(user_output_bits_));
+  #else
+  // TODO: need to handle this when board is not raspberry pi
+  #endif
 }
 
 void RGBMatrix::Impl::ApplyNamedPixelMappers(const char *pixel_mapper_config,
@@ -672,7 +713,7 @@ RGBMatrix *RGBMatrix::CreateFromOptions(const RGBMatrix::Options &options,
   // For the Pi4, we might need 2, maybe up to 4. Let's open up to 5.
   // on supproted architectures, -1 will emit memory barier (DSB ST) after GPIO write
   if (runtime_options.gpio_slowdown < (LED_MATRIX_ALLOW_BARRIER_DELAY ? -1 : 0)
-      || runtime_options.gpio_slowdown > 5) {
+      || runtime_options.gpio_slowdown > 100) {
     fprintf(stderr, "--led-slowdown-gpio=%d is outside usable range\n",
             runtime_options.gpio_slowdown);
     return NULL;

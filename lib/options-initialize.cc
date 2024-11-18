@@ -26,7 +26,7 @@
 #include <vector>
 
 #include "multiplex-mappers-internal.h"
-#include "framebuffer-internal.h"
+#include <framebuffer.h>
 
 #include "gpio.h"
 

@@ -19,7 +19,7 @@
 
 #ifdef RASP_PI
 
-#include "framebuffer-internal.h"
+#include <framebuffer.h>
 
 #include <assert.h>
 #include <ctype.h>

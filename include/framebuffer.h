@@ -12,14 +12,14 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://gnu.org/licenses/gpl-2.0.txt>
-#ifndef RPI_RGBMATRIX_FRAMEBUFFER_INTERNAL_H
-#define RPI_RGBMATRIX_FRAMEBUFFER_INTERNAL_H
+#ifndef RGBMATRIX_FRAMEBUFFER_H
+#define RGBMATRIX_FRAMEBUFFER_H
 
 #include <stdint.h>
 #include <stdlib.h>
 
-#include "hardware-mapping.h"
-#include "../include/graphics.h"
+#include <hardware-mapping.h>
+#include <graphics.h>
 
 namespace rgb_matrix {
 class GPIO;

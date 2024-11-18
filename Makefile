@@ -11,23 +11,19 @@ CSHARP_LIB_DIR=bindings/c\#
 
 BOARD_TYPE ?= raspberry_pi
 
-ifeq ($(BOARD_TYPE), raspberry_pi)
-    CFLAGS += -DRASP_PI
-else ifeq ($(BOARD_TYPE), remi_pi)
-    CFLAGS += -DREMI_PI
-endif
-
 all : $(RGB_LIBRARY)
 
 $(RGB_LIBRARY): FORCE
-	$(MAKE) -C $(RGB_LIBDIR)
-	$(MAKE) -C examples-api-use
+	$(MAKE) -C $(RGB_LIBDIR) BOARD_TYPE=$(BOARD_TYPE)
 
 clean:
 	$(MAKE) -C lib clean
 	$(MAKE) -C utils clean
 	$(MAKE) -C examples-api-use clean
 	$(MAKE) -C $(PYTHON_LIB_DIR) clean
+
+build-examples:
+	$(MAKE) -C examples-api-use BOARD_TYPE=$(BOARD_TYPE)
 
 build-csharp:
 	$(MAKE) -C $(CSHARP_LIB_DIR) nuget

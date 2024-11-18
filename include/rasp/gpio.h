@@ -15,8 +15,8 @@
 
 #ifdef RASP_PI
 
-#ifndef RPI_GPIO_INTERNAL_H
-#define RPI_GPIO_INTERNAL_H
+#ifndef GPIO_INTERNAL_H
+#define GPIO_INTERNAL_H
 
 #include "gpio-bits.h"
 
